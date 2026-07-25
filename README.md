@@ -3,6 +3,9 @@
 A local-first iPhone assistant that runs Gemma 4 E2B on-device with Cactus and
 automatically moves document-backed questions to a trusted Mac compute node.
 
+## Project video
+[Watch the Gemma Personal Compute Mesh demo on YouTube](https://youtube.com/shorts/b-Wt3Tg_DCM)
+
 ## Platform target
 
 This hackathon build intentionally targets **iPhone on iOS 27 only** and assumes
@@ -28,8 +31,10 @@ compatibility, iPad, and older-device memory compromises are not product goals.
 - Completed Gemma responses are spoken locally with the best installed system
   voice; the speaker button can disable or interrupt spoken replies.
 
-LoRA training is the next major implementation phase. The REST boundary is designed
-so it can be added without changing the phone-to-node connection.
+The companion already accepts an optional `adapter_id` and forwards it as the
+vLLM model name. Experimental runtime LoRA registration is verified with the
+installed vLLM-Metal development build; document-to-LoRA generation still needs
+an E4B-trained hypernetwork.
 
 ## System boundary
 
@@ -101,11 +106,63 @@ weights; the current vLLM-Metal MLX loader does not load those weights directly.
 That upstream checkpoint remains appropriate for a compatible CUDA/mainline-vLLM
 node.
 
-As of July 2026, vLLM-Metal lists Gemma 4 as experimental and its LoRA support is
-still open work. Use it for the base Mac inference demo, but do not make live
-per-request LoRA switching on Metal a required demo path. For Mac personalization,
-train with MLX and serve a merged adapter checkpoint; for true dynamic adapter
-selection, use the NVIDIA/Linux vLLM path below.
+### Experimental runtime LoRA on E4B
+
+The locally installed vLLM-Metal development build can wrap E4B's quantized
+`down_proj` layers, dynamically register a PEFT adapter, and select it per request.
+Start it with:
+
+```bash
+export VLLM_ALLOW_RUNTIME_LORA_UPDATING=true
+export VLLM_METAL_USE_PAGED_ATTENTION=1
+vllm serve mlx-community/gemma-4-e4b-it-4bit \
+  --host 127.0.0.1 \
+  --port 8000 \
+  --max-model-len 4096 \
+  --enable-lora \
+  --max-loras 2 \
+  --max-lora-rank 8 \
+  --lora-target-modules down_proj
+```
+
+The runtime update endpoint must remain bound to localhost. Do not expose it to
+the phone or the LAN.
+
+Create the zero-effect adapter used to test E4B tensor shapes and routing:
+
+```bash
+~/.venv-vllm-metal/bin/python \
+  server/scripts/create_e4b_test_adapter.py \
+  server/data/adapters/e4b-zero-test
+```
+
+Register it while vLLM is running:
+
+```bash
+curl http://127.0.0.1:8000/v1/load_lora_adapter \
+  -H "Content-Type: application/json" \
+  -d '{
+    "lora_name": "e4b-zero-test",
+    "lora_path": "'"$PWD"'/server/data/adapters/e4b-zero-test"
+  }'
+```
+
+Then use `"adapter_id": "e4b-zero-test"` in a companion chat request. The test
+adapter deliberately contains zeros, so it proves dynamic loading and routing
+without changing model behavior.
+
+The current vLLM-Metal development build also enables Gemma 4's YOCO fast-prefill
+optimization by default. Its reduced query rows are not yet synchronized with
+LoRA's full token routing map. On this Mac the installed package has a local
+compatibility patch that disables YOCO fast prefill whenever LoRA is enabled.
+Reinstalling vLLM-Metal will overwrite that patch.
+
+Sakana AI's checked-in Doc-to-LoRA checkpoint cannot directly produce an E4B
+adapter. It is trained and hard-coded for `google/gemma-2-2b-it`, while E4B has a
+different layer count and projection dimensions. Its architecture and training
+pipeline are still useful, but the hypernetwork output heads must be retrained
+for E4B before their generated tensors can be registered through the working
+runtime path above.
 
 If Gemma 4 E2B cannot load through vLLM-Metal on the available machine, MLX-LM also
 provides an OpenAI-style `/v1/chat/completions` server. The companion code only
