@@ -1,0 +1,24 @@
+model: mlx-community/gemma-4-e4b-it-4bit
+train: true
+fine_tune_type: lora
+data: server/data/training/42ai-qa
+adapter_path: server/data/mlx_adapters/42ai-e4b-qa
+resume_adapter_file: server/data/mlx_adapters/42ai-e4b/0000025_adapters.safetensors
+mask_prompt: true
+num_layers: -1
+batch_size: 1
+iters: 30
+val_batches: 2
+learning_rate: 5.0e-5
+steps_per_report: 5
+steps_per_eval: 15
+save_every: 15
+max_seq_length: 256
+grad_checkpoint: true
+clear_cache_threshold: 1GB
+lora_parameters:
+  rank: 8
+  dropout: 0.0
+  scale: 1.0
+  keys:
+    - mlp.down_proj
