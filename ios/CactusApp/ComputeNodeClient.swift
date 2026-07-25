@@ -4,7 +4,6 @@ enum ComputeNodeError: LocalizedError {
     case notConfigured
     case invalidResponse
     case server(status: Int, message: String)
-    case documentNotReady
 
     var errorDescription: String? {
         switch self {
@@ -14,8 +13,6 @@ enum ComputeNodeError: LocalizedError {
             "The compute node returned an invalid response."
         case let .server(status, message):
             "Compute node error \(status): \(message)"
-        case .documentNotReady:
-            "Wait for the attached document to finish uploading."
         }
     }
 }
@@ -129,10 +126,6 @@ actor ComputeNodeClient {
         adapterID: String? = nil,
         conversationID: String
     ) async throws -> ComputeNodeAnswer {
-        guard !documentIDs.isEmpty else {
-            throw ComputeNodeError.documentNotReady
-        }
-
         var request = try makeRequest(path: "v1/chat/completions", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(

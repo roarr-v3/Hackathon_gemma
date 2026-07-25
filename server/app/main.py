@@ -120,25 +120,41 @@ async def chat(
             detail=str(error),
         ) from error
 
-    context = format_context(retrieved)
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are Gemma running on the user's private compute node. "
-                "Answer using the supplied document context. If the context does "
-                "not contain the answer, say that clearly. Cite sources inline as "
-                "[Source 1], [Source 2], and so on. Do not invent citations."
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                f"DOCUMENT CONTEXT\n{context}\n\n"
-                f"USER QUESTION\n{request.message}"
-            ),
-        },
-    ]
+    if request.document_ids:
+        context = format_context(retrieved)
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are Gemma running on the user's private compute node. "
+                    "Answer using the supplied document context. If the context does "
+                    "not contain the answer, say that clearly. Cite sources inline as "
+                    "[Source 1], [Source 2], and so on. Do not invent citations."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"DOCUMENT CONTEXT\n{context}\n\n"
+                    f"USER QUESTION\n{request.message}"
+                ),
+            },
+        ]
+    else:
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are Gemma, a helpful assistant running privately on the "
+                    "user's Mac. Answer the user's request directly. Do not claim "
+                    "that document context is required when no document is attached."
+                ),
+            },
+            {
+                "role": "user",
+                "content": request.message,
+            },
+        ]
 
     selected_model = request.adapter_id or settings.vllm_model
     try:

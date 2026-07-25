@@ -27,7 +27,7 @@ class DocumentResponse(BaseModel):
 class ChatRequest(BaseModel):
     conversation_id: str
     message: str = Field(min_length=1, max_length=20_000)
-    document_ids: list[str] = Field(min_length=1, max_length=20)
+    document_ids: list[str] = Field(max_length=20)
     adapter_id: str | None = None
 
 

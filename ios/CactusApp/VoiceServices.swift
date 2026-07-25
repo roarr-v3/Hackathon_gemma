@@ -6,6 +6,7 @@ enum VoiceInteractionError: LocalizedError {
     case speechPermissionDenied
     case speechRecognitionUnavailable
     case unsupportedLocale
+    case microphoneUnavailable
     case invalidAudioFormat
 
     var errorDescription: String? {
@@ -18,6 +19,8 @@ enum VoiceInteractionError: LocalizedError {
             return "Speech recognition is temporarily unavailable."
         case .unsupportedLocale:
             return "The current language is not supported for on-device transcription."
+        case .microphoneUnavailable:
+            return "No microphone is available for speech input."
         case .invalidAudioFormat:
             return "The microphone did not provide a usable audio format."
         }
@@ -113,18 +116,15 @@ final class SpeechInputService: ObservableObject {
 
 @MainActor
 private final class SpeechAnalyzerSession {
-    private let audioEngine = AVAudioEngine()
     private let onTranscript: @MainActor (String) -> Void
     private let onError: @MainActor (Error) -> Void
 
     private var analyzer: SpeechAnalyzer?
-    private var converter: AnalyzerInputConverter?
-    private var inputContinuation: AsyncStream<AnalyzerInput>.Continuation?
+    private var captureProvider: CaptureInputSequenceProvider?
     private var analyzerTask: Task<Void, Never>?
     private var resultsTask: Task<Void, Never>?
     private var finalizedTranscript = ""
     private var volatileTranscript = ""
-    private var hasInstalledAudioTap = false
 
     init(
         onTranscript: @escaping @MainActor (String) -> Void,
@@ -149,15 +149,24 @@ private final class SpeechAnalyzerSession {
         )
         try await installAssetsIfNeeded(for: transcriber)
 
-        let converter = try await AnalyzerInputConverter.converter(
-            compatibleWith: [transcriber]
+        guard let microphone = AVCaptureDevice.default(for: .audio) else {
+            throw VoiceInteractionError.microphoneUnavailable
+        }
+
+        let captureProvider = try await CaptureInputSequenceProvider.providerWithSession(
+            from: microphone,
+            compatibleWith: [transcriber],
+            priority: .userInitiated
         )
         let analyzer = SpeechAnalyzer(modules: [transcriber])
-        let (inputStream, inputContinuation) = AsyncStream<AnalyzerInput>.makeStream()
 
-        self.converter = converter
         self.analyzer = analyzer
-        self.inputContinuation = inputContinuation
+        self.captureProvider = captureProvider
+
+        let analyzerFormat = await SpeechAnalyzer.bestAvailableAudioFormat(
+            compatibleWith: [transcriber]
+        )
+        try await analyzer.prepareToAnalyze(in: analyzerFormat)
 
         resultsTask = Task { [weak self] in
             do {
@@ -183,7 +192,7 @@ private final class SpeechAnalyzerSession {
 
         analyzerTask = Task { [weak self] in
             do {
-                try await analyzer.start(inputSequence: inputStream)
+                try await analyzer.start(inputSequence: captureProvider.analyzerInputs)
             } catch is CancellationError {
                 return
             } catch {
@@ -191,48 +200,27 @@ private final class SpeechAnalyzerSession {
             }
         }
 
-        do {
-            try startAudioEngine(converter: converter, continuation: inputContinuation)
-        } catch {
-            stopAudioEngine()
-            inputContinuation.finish()
-            analyzerTask?.cancel()
-            resultsTask?.cancel()
-            deactivateAudioSession()
-            throw error
-        }
+        captureProvider.captureSession.startRunning()
     }
 
     func stop() async {
-        stopAudioEngine()
-
-        if let converter, let inputContinuation {
-            do {
-                for input in try converter.flush() {
-                    inputContinuation.yield(input)
-                }
-            } catch {
-                onError(error)
-            }
+        if captureProvider?.captureSession.isRunning == true {
+            captureProvider?.captureSession.stopRunning()
         }
 
-        inputContinuation?.finish()
-
         do {
-            try await analyzer?.finalizeAndFinishThroughEndOfInput()
+            try await analyzer?.finalize(through: nil)
         } catch {
             onError(error)
         }
+        await analyzer?.cancelAndFinishNow()
 
         analyzerTask?.cancel()
         resultsTask?.cancel()
         analyzerTask = nil
         resultsTask = nil
         analyzer = nil
-        converter = nil
-        inputContinuation = nil
-
-        deactivateAudioSession()
+        captureProvider = nil
     }
 
     private func installAssetsIfNeeded(for transcriber: SpeechTranscriber) async throws {
@@ -253,68 +241,6 @@ private final class SpeechAnalyzerSession {
         @unknown default:
             throw VoiceInteractionError.speechRecognitionUnavailable
         }
-    }
-
-    private func startAudioEngine(
-        converter: AnalyzerInputConverter,
-        continuation: AsyncStream<AnalyzerInput>.Continuation
-    ) throws {
-        let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(
-            .record,
-            mode: .measurement,
-            options: [.duckOthers, .allowBluetoothHFP]
-        )
-        try audioSession.setActive(true)
-
-        let inputNode = audioEngine.inputNode
-        let inputFormat = inputNode.outputFormat(forBus: 0)
-        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
-            throw VoiceInteractionError.invalidAudioFormat
-        }
-
-        try inputNode.installAudioTap(
-            onBus: 0,
-            bufferSize: 1_024,
-            format: inputFormat
-        ) { [weak self] buffer, time in
-            do {
-                let mutableBuffer = AVAudioPCMBuffer(copying: buffer)
-                for input in try converter.convert(mutableBuffer, at: time) {
-                    continuation.yield(input)
-                }
-            } catch {
-                Task { @MainActor [weak self] in
-                    self?.onError(error)
-                }
-            }
-        }
-        hasInstalledAudioTap = true
-
-        audioEngine.prepare()
-        try audioEngine.start()
-    }
-
-    private func stopAudioEngine() {
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
-        if hasInstalledAudioTap {
-            audioEngine.inputNode.removeTap(onBus: 0)
-            hasInstalledAudioTap = false
-        }
-    }
-}
-
-@MainActor
-private func deactivateAudioSession() {
-    do {
-        try AVAudioSession.sharedInstance().setActive(
-            false,
-            options: .notifyOthersOnDeactivation
-        )
-    } catch {
-        // The next audio operation reconfigures the shared session if deactivation fails.
     }
 }
 
