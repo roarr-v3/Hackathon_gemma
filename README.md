@@ -428,6 +428,17 @@ PYTHONPATH=. .venv/bin/pytest -q
 See `PROJECT_SPEC.md` for the full architecture, security model, demo, and training
 plan.
 
+## Team and contributions
+
+This project was created for the Gemma 4 Hackathon in Paris.
+
+- **Sinan Fatmi (`roarr-v3`)** — software architecture and engineering:
+  iOS application, Mac companion service, model integration, document retrieval,
+  LoRA experiments, testing, and repository implementation.
+- **Bruno Gomez (`Brunogo25`)** — pitch development and presentation materials.
+
+The Git commit history records the implementation work.
+
 ## Primary references
 
 - vLLM Gemma 4 recipe:
