@@ -6,6 +6,17 @@ automatically moves document-backed questions to a trusted Mac compute node.
 ## Project video
 [Watch the Gemma Personal Compute Mesh demo on YouTube](https://youtube.com/shorts/b-Wt3Tg_DCM)
 
+## Team and contributions
+
+This project was created for the Gemma 4 Hackathon in Paris.
+
+- **Sinan Fatmi (`roarr-v3`)** — software architecture and engineering:
+  iOS application, Mac companion service, model integration, document retrieval,
+  LoRA experiments, testing, and repository implementation.
+- **Bruno Gomez (`Brunogo25`)** — pitch development and presentation materials.
+
+The Git commit history records the implementation work.
+
 ## Platform target
 
 This hackathon build intentionally targets **iPhone on iOS 27 only** and assumes
@@ -427,17 +438,6 @@ PYTHONPATH=. .venv/bin/pytest -q
 
 See `PROJECT_SPEC.md` for the full architecture, security model, demo, and training
 plan.
-
-## Team and contributions
-
-This project was created for the Gemma 4 Hackathon in Paris.
-
-- **Sinan Fatmi (`roarr-v3`)** — software architecture and engineering:
-  iOS application, Mac companion service, model integration, document retrieval,
-  LoRA experiments, testing, and repository implementation.
-- **Bruno Gomez (`Brunogo25`)** — pitch development and presentation materials.
-
-The Git commit history records the implementation work.
 
 ## Primary references
 
